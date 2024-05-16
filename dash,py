@@ -1,0 +1,136 @@
+import dash
+from dash.dependencies import Output, Input, State
+import dash_core_components as dcc
+import dash_html_components as html
+import plotly
+import plotly.graph_objs as go
+from collections import deque
+from datetime import datetime, timedelta
+
+# Create a Dash app
+app = dash.Dash(__name__)
+
+# Initialize data for the graph
+X = deque(maxlen=20)
+X.append(datetime.now())
+Y_values = [0.2,0.3, 0.2, 0.2, 0.5, 0.6, 0.9, 1.2, 1.1, 0.3, 7, 0.25, 0.31, 0.27, 0.21, 0.5, 1.3, 1.2, 1.5, 2, 1.7, 2, 0.9, 0.5]
+Y_values2 = [0.2,0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2,0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+Y = deque(maxlen=20)
+Y.append(Y_values[datetime.now().hour])
+
+# Define the layout
+app.layout = html.Div([
+    # Add the company logo (center-aligned with a red border)
+    html.Div(
+        [
+            html.Img(src=app.get_asset_url('nspi_logo_original.jpeg'), height='80px', style={'display': 'block', 'margin': 'auto'}),            
+            html.H2("Your Hourly Energy Usage App", style={'text-align': 'center', 'margin-top': '10px'})
+        ],
+        style={'text-align': 'center'}
+    ),
+
+    # Add a label and dropdown
+    html.Label('Select your property', style={'font-weight': 'bold'}),
+    dcc.Dropdown(
+        id='property-dropdown',
+        options=[
+            {'label': 'Property - Primary', 'value': 'Property 123456'},
+            {'label': 'Property - Cottage', 'value': 'Property 654321'}
+        ],
+        value='Property 123456'
+    ),
+
+    # Add the live graph
+    dcc.Graph(id='live-graph', animate=True),
+    dcc.Interval(id='graph-update', interval=1000, n_intervals=0),
+
+    # Add a PAUSE button
+    html.Button('Pause', id='pause-button', n_clicks=0),
+
+    # Add a notification div
+    html.Div(id='notification-div', style={'background-color': 'red', 'color': 'white', 'text-align': 'center', 'font-size': '40px'})
+])
+
+# Callback to update the graph
+@app.callback(Output('live-graph', 'figure'), [Input('graph-update', 'n_intervals'), Input('pause-button', 'n_clicks'), Input('property-dropdown', 'value')])
+def update_graph_scatter(n, n_clicks, selected_property):
+    global X, Y
+    if n_clicks % 2 == 0:  # If the number of button clicks is even, update the graph
+        current_time = X[-1] + timedelta(hours=1)
+        X.append(current_time)
+        if selected_property == 'Property 123456':
+            Y.append(Y_values[current_time.hour])
+        else:
+            Y.append(Y_values2[current_time.hour])
+
+        data = plotly.graph_objs.Scatter(
+            x=list(X),
+            y=list(Y),
+            name='Scatter',
+            mode='lines+markers'
+        )
+
+        layout = go.Layout(
+            xaxis=dict(title='Time (Hour of the Day)'),  # X-axis label
+            yaxis=dict(title='Kw/hr'),  # Y-axis label
+            xaxis_range=[min(X), max(X)],
+            yaxis_range=[min(Y), max(Y)]
+        )
+
+        if Y[-1] > 5:
+            layout.shapes = [
+                dict(
+                    type='line',
+                    yref='y', y0=0, y1=1,
+                    xref='x', x0=current_time, x1=current_time,
+                    line=dict(
+                        color='Red',
+                        width=1
+                    )
+                )
+            ]
+            layout.annotations = [
+                dict(
+                    x=current_time,
+                    y=0.95,
+                    xref='x',
+                    yref='paper',
+                    text='OUTLIER',
+                    showarrow=False,
+                    font=dict(
+                        color='White',
+                        size=16
+                    ),
+                    bgcolor='Red'
+                )
+            ]
+
+        return {'data': [data], 'layout': layout}
+    else:  # If the number of button clicks is odd, don't update the graph
+        raise dash.exceptions.PreventUpdate
+
+# Callback to reset the graph when a new dropdown value is selected
+@app.callback(Output('graph-update', 'n_intervals'), [Input('property-dropdown', 'value')])
+def reset_graph(selected_property):
+    global X, Y
+    X = deque(maxlen=20)
+    X.append(datetime.now())
+    if selected_property == 'Property 123456':
+        Y = deque(Y_values, maxlen=20)
+    else:
+        Y = deque(Y_values2, maxlen=20)
+    return 0
+
+# Callback to update the notification div
+@app.callback(Output('notification-div', 'children'), [Input('graph-update', 'n_intervals')])
+def update_notification_div(value):
+    if Y[-2] >5 or Y[-1] > 5 or Y[-3] > 5:    
+        
+        return "Unusually high energy consumption detected. Please check your appliances."
+        
+    else:
+        return ""
+ 
+if __name__ == '__main__':
+    app.run_server()
